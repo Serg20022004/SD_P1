@@ -9,7 +9,7 @@ import signal
 import random
 
 # --- Configuration ---
-PYTHON_EXECUTABLE = "python" # SET TO YOUR VENV PYTHON
+PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # SET TO YOUR VENV PYTHON
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 
 FILTER_WORKER_SCRIPT_REDIS = os.path.join(PROJECT_ROOT, "redis_filter_service", "filter_worker_redis.py")
@@ -103,7 +103,7 @@ if __name__ == "__main__":
             r_monitor = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
             results_collected_count = 0
             # Adjust max_wait_time based on expected processing speed. Redis is fast.
-            max_wait_time_redis = 30 + (TOTAL_REQUESTS / (num_workers * 100 if num_workers > 0 else 1)) # Heuristic
+            max_wait_time_redis = 60 + (TOTAL_REQUESTS * 0.5 / num_workers if num_workers >0 else TOTAL_REQUESTS * 0.5)
             wait_start_redis = time.time()
 
             while results_collected_count < TOTAL_REQUESTS and (time.time() - wait_start_redis) < max_wait_time_redis:

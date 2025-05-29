@@ -59,7 +59,7 @@ def main():
                 print(f"\nWorker {worker_id}: Received task from '{queue_name}': '{original_text[:50]}...'")
                 
                 # Simulate some processing time
-                time.sleep(random.uniform(0.5, 2.0)) 
+                #time.sleep(random.uniform(0.5, 2.0)) 
                 
                 filtered_text = filter_text_logic(original_text, KNOWN_INSULTS)
                 print(f"Worker {worker_id}: Filtered result: '{filtered_text[:50]}...'")

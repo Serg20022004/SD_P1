@@ -52,9 +52,9 @@ def process_message_callback(ch, method, properties, body):
     print(f"\nWorker {worker_id}: Received task: '{original_text[:50]}...'")
 
     # Simulate work
-    processing_time = random.uniform(1, 3)
-    print(f"Worker {worker_id}: Processing for {processing_time:.2f} seconds...")
-    time.sleep(processing_time)
+    #processing_time = random.uniform(1, 3)
+    #print(f"Worker {worker_id}: Processing for {processing_time:.2f} seconds...")
+    #time.sleep(processing_time)
 
     filtered_text = filter_text_logic(original_text, KNOWN_INSULTS)
     print(f"Worker {worker_id}: Filtered result: '{filtered_text[:50]}...'")

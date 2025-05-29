@@ -10,7 +10,7 @@ import random
 
 # --- Configuration ---
 # !!! IMPORTANT: SET THIS TO THE PYTHON EXECUTABLE IN YOUR VIRTUAL ENVIRONMENT !!!
-PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # CHANGE THIS IF NEEDED
+PYTHON_EXECUTABLE = "python" # CHANGE THIS IF NEEDED
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 FILTER_WORKER_SCRIPT_RABBIT = os.path.join(PROJECT_ROOT, "rabbitmq_filter_service", "filter_worker_rabbit.py")
@@ -81,7 +81,8 @@ def rabbitmq_producer_job_direct(num_tasks, task_queue_name, sample_texts):
 def run_worker_process_rb(worker_script_path, python_exec, title_prefix="Worker"):
     # (Worker starter same as Redis test)
     print(f"  Starting {title_prefix} using: {python_exec} {worker_script_path}")
-    proc = subprocess.Popen([python_exec, worker_script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # proc = subprocess.Popen([python_exec, worker_script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen([python_exec, worker_script_path]) # Let worker print to this console
     time.sleep(2) # RabbitMQ workers need time to connect, declare, start consuming
     if proc.poll() is not None:
         print(f"  ERROR: {title_prefix} at {worker_script_path} exited prematurely.")
@@ -226,15 +227,32 @@ if __name__ == "__main__":
         finally:
             print(f"  Terminating {len(worker_procs_rabbit)} RabbitMQ worker process(es) for N={num_workers} run...")
             for proc in worker_procs_rabbit:
-                if proc and proc.is_alive():
+                if proc and proc.poll() is None: # Check if progress still running
+               	    print(f"    Terminating worker PID: {proc.pid}...")
                     try: 
                         # proc.send_signal(signal.SIGINT)
                         # time.sleep(1)
                         # if proc.poll() is None:
                         proc.terminate() 
                         proc.wait(timeout=5)
-                    except Exception as e_term_rb: print(f"Error terminating worker {proc.pid}: {e_term_rb}")
-            print(f"  RabbitMQ workers for N={num_workers} terminated.")
+                        if proc.poll() is None: # If still running after SIGTERM and wait
+                             print(f"    Worker PID: {proc.pid} did not stop with SIGTERM, sending SIGKILL...")
+                             proc.kill()
+                             proc.wait(timeout=2) # Wait for kill
+                        # else:
+                        #    print(f"    Worker PID: {proc.pid} terminated with code {proc.returncode}.")
+                    except subprocess.TimeoutExpired:
+                        print(f"    Worker PID: {proc.pid} did not terminate/wait in time after SIGTERM, killing.")
+                        proc.kill() # Force kill if terminate + wait times out
+                        proc.wait(timeout=2)
+                    except Exception as e_term_rb: 
+                        print(f"    Error during complex termination of worker {proc.pid}: {e_term_rb}")
+                        try:
+                            if proc.poll() is None: proc.kill() # Last resort
+                        except: pass
+                # else:
+                    # print(f"    Worker process was already terminated or not valid.")
+            print(f"  RabbitMQ workers for N={num_workers} terminated (or were already).")
             time.sleep(1)
 
     print("\n" + "=" * 70)
