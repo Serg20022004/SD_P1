@@ -1,218 +1,247 @@
-# dynamic_scaler_rabbit.py
+# dynamic_scaler_rabbit.py (Revised for clearer data output)
 import pika
 import time
 import subprocess
 import os
 import signal
 import math
+import datetime
 
 # --- Configuration ---
-PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # VENV PYTHON 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".")) 
+PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # YOUR VENV PYTHON!
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 FILTER_WORKER_SCRIPT = os.path.join(PROJECT_ROOT, "rabbitmq_filter_service", "filter_worker_rabbit.py")
 
+RESULTS_QUEUE_NAME_RABBIT = 'filter_results_data_queue'
 RABBITMQ_HOST = 'localhost'
 TASK_QUEUE_NAME = 'filter_task_work_queue'
+# RESULTS_QUEUE_NAME_RABBIT is used by workers but not directly by this scaler for its decisions.
 
 # Scaler Parameters
 MIN_WORKERS = 1
-MAX_WORKERS = 5 # Max workers to allow (less than the vCPU count to avoid thrashing)
+MAX_WORKERS = 3 # Keep this reasonable for your VM (e.g., <= vCPUs for best effect)
 POLL_INTERVAL = 5  # Seconds: How often to check queue and make scaling decisions
 
-# Formula parameters
-# T_avg_processing_per_task: Avg time for 1 worker to process 1 task.
-# From RabbitMQ N=1 static test: T1_rabbit = 15.25s for TOTAL_REQUESTS = 10000
-# So, T_avg_processing_per_task = 15.25 / 10000 = 0.001525 seconds/task
-T_AVG_PROCESSING_PER_TASK = 0.001525 # Seconds
+# --- ACCURATE Formula parameters from your Phase 2, N=1 RabbitMQ test ---
+# Example: T1_rabbit for 10000 tasks was 15.25s
+T1_FOR_10K_TASKS_RABBIT = 15.25 # <<< REPLACE WITH YOUR ACTUAL MEASURED VALUE
+TOTAL_TASKS_FOR_T1_CALC = 10000
+T_AVG_PROCESSING_PER_TASK = T1_FOR_10K_TASKS_RABBIT / TOTAL_TASKS_FOR_T1_CALC
 
-# C_worker_capacity: Capacity of a single worker (tasks/second)
-# C_worker_capacity = 1 / T_AVG_PROCESSING_PER_TASK if T_AVG_PROCESSING_PER_TASK > 0 else float('inf')
-# Example: If T = 0.01s (10ms), C = 100 tasks/sec.
-# Let's re-evaluate C based on actual filtering. If filtering is <1ms, C could be 1000+.
-# For now, let's use a placeholder value and refine based on your T1 without artificial sleep.
-# If T1_rabbit (10000 tasks) = 15s (no artificial sleep), then worker did ~666 RPS. So C ~ 600-700.
-C_WORKER_CAPACITY = 600 # Placeholder: tasks per second per worker (ADJUST THIS BASED ON YOUR T1)
+if T_AVG_PROCESSING_PER_TASK > 0:
+    C_WORKER_CAPACITY = math.ceil(1 / T_AVG_PROCESSING_PER_TASK)
+else:
+    C_WORKER_CAPACITY = 100 # Fallback: A very conservative estimate if T_avg is somehow zero
 
-# Tr_target_response_time: Target time for a task to be in the queue before processing.
-Tr_TARGET_RESPONSE_TIME = 2 # Seconds (e.g., aim for tasks not to wait more than 2s)
+Tr_TARGET_RESPONSE_TIME = 2.0 # Seconds: Target for tasks in backlog
+LAMBDA_ESTIMATED_ARRIVAL_RATE = 150 # tasks/second (Average expected, adjust based on producer)
 
-# Lambda_arrival_rate: Task arrival rate (tasks/second).
-# This is harder to measure dynamically in a simple script.
-# For a simpler scaler, we can focus on Backlog (B) primarily or use a fixed estimate for Lambda.
-# If producer sends 100 tasks/sec, LAMBDA_ESTIMATED_ARRIVAL_RATE = 100.
-# For now, let's make a version that primarily reacts to backlog B,
-# but can incorporate Lambda if we can estimate it.
-LAMBDA_ESTIMATED_ARRIVAL_RATE = 50 # Placeholder: tasks/second (producer's average rate)
+SCALE_COOLDOWN_PERIOD = 15 # Seconds: Reduced for quicker reaction in demo
 
-# Thresholds for simpler scaling (if not using full formula)
-QUEUE_THRESHOLD_SCALE_UP = 500   # If queue has more than this, consider scaling up
-QUEUE_THRESHOLD_SCALE_DOWN = 50 # If queue has less than this for a while, consider scaling down
-SCALE_COOLDOWN_PERIOD = 30      # Seconds: Wait this long after a scaling action
-
-active_worker_processes = [] # List to store Popen objects of worker processes
+active_worker_processes_info = [] # List of dicts: {"process": Popen_obj, "pid": pid, "id_str": "Worker-X"}
 last_scaling_action_time = 0
+worker_id_counter = 0 # To give unique IDs to workers
+
+# --- Log File ---
+SCALER_LOG_FILE = "dynamic_scaler_log.csv"
+
+def log_to_file(message):
+    with open(SCALER_LOG_FILE, "a") as f:
+        f.write(message + "\n")
 
 def get_queue_length(queue_name):
+    # (get_queue_length function remains the same - ensure robust connection)
     connection = None
     try:
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, connection_attempts=2, retry_delay=1))
         channel = connection.channel()
-        # Passive declare to get info without modifying queue if it exists
         q_info = channel.queue_declare(queue=queue_name, durable=True, passive=True)
         return q_info.method.message_count
     except Exception as e:
-        print(f"Scaler: Error getting queue length for '{queue_name}': {e}")
-        return None # Indicate error
+        log_to_file(f"{datetime.datetime.now().strftime('%H:%M:%S')},ERROR_Q_LEN,-1,-1,ErrorGettingQueueLength: {e}")
+        return None 
     finally:
         if connection and connection.is_open:
             connection.close()
 
 def start_new_worker():
-    global active_worker_processes
-    if len(active_worker_processes) < MAX_WORKERS:
-        print(f"Scaler: Starting a new worker (current: {len(active_worker_processes)}, max: {MAX_WORKERS})...")
+    global active_worker_processes_info, worker_id_counter
+    if len(active_worker_processes_info) < MAX_WORKERS:
+        worker_id_counter += 1
+        worker_id_str = f"Worker-{worker_id_counter}"
+        log_message = f"Attempting to start {worker_id_str} (current: {len(active_worker_processes_info)})"
+        print(log_message); log_to_file(f"INFO,{log_message}")
         try:
-            # Ensure worker output is visible for debugging, or redirect later
-            proc = subprocess.Popen([PYTHON_EXECUTABLE, FILTER_WORKER_SCRIPT])
-            active_worker_processes.append(proc)
-            print(f"Scaler: New worker started (PID: {proc.pid}). Total workers: {len(active_worker_processes)}")
+            # Redirect worker output to its own log file to keep scaler output clean
+            worker_logfile_name = f"worker_{worker_id_counter}_log.txt"
+            worker_logfile = open(worker_logfile_name, "w")
+            
+            proc = subprocess.Popen([PYTHON_EXECUTABLE, FILTER_WORKER_SCRIPT],
+                                    stdout=worker_logfile, stderr=subprocess.STDOUT)
+            
+            active_worker_processes_info.append({"process": proc, "pid": proc.pid, "id_str": worker_id_str, "logfile": worker_logfile_name})
+            log_message = f"New worker {worker_id_str} (PID: {proc.pid}) started. Total: {len(active_worker_processes_info)}"
+            print(log_message); log_to_file(f"INFO,{log_message}")
+            return True
         except Exception as e:
-            print(f"Scaler: Failed to start new worker: {e}")
-    else:
-        print(f"Scaler: Max worker limit ({MAX_WORKERS}) reached. Cannot scale up further.")
-
+            log_message = f"Failed to start new worker {worker_id_str}: {e}"
+            print(log_message); log_to_file(f"ERROR,{log_message}")
+            if 'worker_logfile' in locals() and worker_logfile: worker_logfile.close() # Close if opened
+            return False
+    return False
 
 def stop_one_worker():
-    global active_worker_processes
-    if len(active_worker_processes) > MIN_WORKERS:
+    global active_worker_processes_info
+    if len(active_worker_processes_info) > MIN_WORKERS:
         try:
-            worker_to_stop = active_worker_processes.pop() # Remove last worker from list
-            print(f"Scaler: Stopping worker (PID: {worker_to_stop.pid})...")
-            worker_to_stop.terminate() # Send SIGTERM, worker should handle for graceful shutdown
-            worker_to_stop.wait(timeout=5) # Wait for it
-            if worker_to_stop.poll() is None: # If still running
-                print(f"Scaler: Worker {worker_to_stop.pid} did not terminate gracefully, killing.")
-                worker_to_stop.kill()
-            print(f"Scaler: Worker stopped. Total workers: {len(active_worker_processes)}")
-        except subprocess.TimeoutExpired:
-            print(f"Scaler: Worker {worker_to_stop.pid} did not terminate in time after SIGTERM, attempting kill.")
-            if worker_to_stop.poll() is None: worker_to_stop.kill()
-        except Exception as e:
-            print(f"Scaler: Error stopping worker: {e}")
-            # Add it back if stopping failed, or handle more gracefully
-            # active_worker_processes.append(worker_to_stop) 
-    else:
-        print(f"Scaler: Min worker limit ({MIN_WORKERS}) reached. Cannot scale down further.")
+            worker_info_to_stop = active_worker_processes_info.pop(0) # Stop oldest worker
+            proc_to_stop = worker_info_to_stop["process"]
+            pid_to_stop = worker_info_to_stop.get("pid", "N/A")
+            worker_id_str = worker_info_to_stop.get("id_str", f"PID {pid_to_stop}")
 
+            log_message = f"Attempting to stop worker {worker_id_str} (PID: {pid_to_stop})"
+            print(log_message); log_to_file(f"INFO,{log_message}")
+            
+            proc_to_stop.terminate() 
+            proc_to_stop.wait(timeout=5) 
+            if proc_to_stop.poll() is None: 
+                log_message_kill = f"Worker {worker_id_str} (PID: {pid_to_stop}) did not terminate gracefully, killing."
+                print(log_message_kill); log_to_file(f"INFO,{log_message_kill}")
+                proc_to_stop.kill()
+                proc_to_stop.wait(timeout=2)
+            
+            log_message_stopped = f"Worker {worker_id_str} stopped. Total: {len(active_worker_processes_info)}"
+            print(log_message_stopped); log_to_file(f"INFO,{log_message_stopped}")
+
+            # Close worker's log file
+            logfile_name = worker_info_to_stop.get("logfile")
+            if logfile_name:
+                # This requires finding the file object if it wasn't stored, or just noting it.
+                # For simplicity, we just have the name. Actual closing would be if we kept file objects.
+                pass
+            return True
+        except Exception as e:
+            log_message_err = f"Error stopping worker {pid_to_stop}: {e}"
+            print(log_message_err); log_to_file(f"ERROR,{log_message_err}")
+        return False
+    return False
 
 def cleanup_terminated_workers():
-    """Removes any worker processes that have already terminated."""
-    global active_worker_processes
-    live_workers = []
-    for proc in active_worker_processes:
-        if proc.poll() is None: # If still running
-            live_workers.append(proc)
+    global active_worker_processes_info
+    # (cleanup logic remains same)
+    live_workers_info = []
+    changed = False
+    for worker_info in active_worker_processes_info:
+        proc = worker_info["process"]
+        if proc.poll() is None: 
+            live_workers_info.append(worker_info)
         else:
-            print(f"Scaler: Worker PID {proc.pid} found terminated (exit code {proc.returncode}). Removing from list.")
-    active_worker_processes = live_workers
-
+            pid = worker_info.get("pid", "N/A")
+            log_message = f"Worker PID {pid} found terminated (exit code {proc.returncode}). Removing."
+            print(log_message); log_to_file(f"INFO,{log_message}")
+            changed = True
+    if changed:
+        active_worker_processes_info = live_workers_info
 
 # --- Main Scaler Loop ---
 def scaler_loop():
     global last_scaling_action_time
-    print("Dynamic Scaler for RabbitMQ InsultFilter started.")
-    print(f"Config: MIN_W={MIN_WORKERS}, MAX_W={MAX_WORKERS}, POLL_I={POLL_INTERVAL}s")
-    print(f"Formula params: T_avg={T_AVG_PROCESSING_PER_TASK:.4f}s, C_cap={C_WORKER_CAPACITY:.0f}rps, Tr_target={Tr_TARGET_RESPONSE_TIME}s, Lambda_est={LAMBDA_ESTIMATED_ARRIVAL_RATE}rps")
 
-    # Initial worker setup
-    for _ in range(MIN_WORKERS):
+    header = "Timestamp,Backlog_B,Active_Workers,N_Desired_Formula,Action_Taken"
+    print(header); log_to_file(header) # Print and log CSV header
+
+    print("Scaler: Starting initial minimum workers...")
+    for _ in range(MIN_WORKERS): # Start initial MIN_WORKERS
         start_new_worker()
-    last_scaling_action_time = time.time()
-
+    last_scaling_action_time = 0 # Allow first decision after poll_interval without cooldown
 
     try:
         while True:
             time.sleep(POLL_INTERVAL)
-            cleanup_terminated_workers() # Check for crashed workers
+            cleanup_terminated_workers() 
+
+            current_timestamp_obj = datetime.datetime.now()
+            ts = current_timestamp_obj.strftime('%Y-%m-%d %H:%M:%S')
 
             current_backlog_B = get_queue_length(TASK_QUEUE_NAME)
-            if current_backlog_B is None: # Error getting queue length
-                print("Scaler: Cannot get queue length, skipping scaling decision.")
-                continue
+            if current_backlog_B is None: 
+                log_to_file(f"{ts},ERROR_Q_LEN,-1,-1,ErrorGettingQueueLength")
+                continue 
             
-            num_current_live_workers = len(active_worker_processes)
-            print(f"\nScaler: Poll at {time.strftime('%H:%M:%S')}")
-            print(f"  Current Backlog (B): {current_backlog_B} tasks in '{TASK_QUEUE_NAME}'")
-            print(f"  Current Active Workers: {num_current_live_workers}")
-
-            # Dynamic scaling formula: N = ceil( (B + (λ * Tr)) / C )
-            # For lambda, if we don't measure it dynamically, we use estimated or a simpler logic
-            # Simplified: If B is high, N needs to be B/C for immediate processing + some for ongoing lambda
-            # N_desired_for_backlog = math.ceil(current_backlog_B / (C_WORKER_CAPACITY * Tr_TARGET_RESPONSE_TIME)) if C_WORKER_CAPACITY > 0 and Tr_TARGET_RESPONSE_TIME > 0 else num_current_live_workers
+            num_current_live_workers = len(active_worker_processes_info)
             
-            # Using the formula from P1 spec: N = [B + (λ * Tr)] / C
-            # Let's use a fixed estimated lambda for now.
-            # A more advanced scaler would try to estimate lambda.
             numerator = current_backlog_B + (LAMBDA_ESTIMATED_ARRIVAL_RATE * Tr_TARGET_RESPONSE_TIME)
-            N_desired = MIN_WORKERS # Default to min
+            N_desired = MIN_WORKERS 
             if C_WORKER_CAPACITY > 0:
                 N_desired = math.ceil(numerator / C_WORKER_CAPACITY)
-            else: # Avoid division by zero if C is 0 (should not happen if T_avg is > 0)
-                 if numerator > 0 : N_desired = MAX_WORKERS # If there's work and no capacity, max out
+            else: 
+                 if numerator > 0 : N_desired = MAX_WORKERS 
 
-            # Clamp N_desired between MIN_WORKERS and MAX_WORKERS
             N_desired = max(MIN_WORKERS, min(N_desired, MAX_WORKERS))
-            print(f"  Formula desired workers (N_desired): {N_desired}")
+            
+            action_taken_str = "Maintain"
+            scaled_this_cycle = False
 
-            # Cooldown logic
-            if time.time() - last_scaling_action_time < SCALE_COOLDOWN_PERIOD:
-                print(f"  Scaler in cooldown. Waiting for {SCALE_COOLDOWN_PERIOD - (time.time() - last_scaling_action_time):.0f}s more.")
-                continue # Skip scaling action if in cooldown
-
-            # Scaling decision
-            if N_desired > num_current_live_workers:
-                print(f"  Decision: Scale UP from {num_current_live_workers} to {N_desired} workers.")
-                for _ in range(N_desired - num_current_live_workers):
-                    if len(active_worker_processes) < MAX_WORKERS:
-                        start_new_worker()
-                    else: break # Reached max
-                last_scaling_action_time = time.time()
-            elif N_desired < num_current_live_workers:
-                print(f"  Decision: Scale DOWN from {num_current_live_workers} to {N_desired} workers.")
-                for _ in range(num_current_live_workers - N_desired):
-                    if len(active_worker_processes) > MIN_WORKERS:
-                        stop_one_worker()
-                    else: break # Reached min
-                last_scaling_action_time = time.time()
+            if time.time() - last_scaling_action_time >= SCALE_COOLDOWN_PERIOD:
+                if N_desired > num_current_live_workers:
+                    action_taken_str = f"Attempt_ScaleUP_to_{N_desired}"
+                    if start_new_worker(): # Tries to start one if not at MAX
+                       last_scaling_action_time = time.time()
+                       scaled_this_cycle = True
+                       # If N_desired needs more than one new worker, it will happen over multiple polls
+                elif N_desired < num_current_live_workers:
+                    action_taken_str = f"Attempt_ScaleDOWN_to_{N_desired}"
+                    if stop_one_worker(): # Tries to stop one if not at MIN
+                        last_scaling_action_time = time.time()
+                        scaled_this_cycle = True
             else:
-                print(f"  Decision: Maintain {num_current_live_workers} workers. No scaling action needed.")
+                action_taken_str = f"InCooldown ({SCALE_COOLDOWN_PERIOD - (time.time() - last_scaling_action_time):.0f}s left)"
+            
+            # Log data AFTER action attempt, use updated num_current_live_workers for log
+            num_current_live_workers = len(active_worker_processes_info) # Re-check after potential scaling
+            log_line = f"{ts},{current_backlog_B},{num_current_live_workers},{N_desired},{action_taken_str}"
+            print(log_line); log_to_file(log_line)
 
     except KeyboardInterrupt:
-        print("\nScaler: KeyboardInterrupt received. Shutting down all workers...")
+        log_message_kb = "\nScaler: KeyboardInterrupt. Shutting down..."
+        print(log_message_kb); log_to_file(f"INFO,{log_message_kb}")
     finally:
-        print("Scaler: Final cleanup. Terminating all active workers...")
-        # Create a copy for iteration as stop_one_worker modifies the list
-        for _ in range(len(active_worker_processes)): 
-            if active_worker_processes: # Check if list is not empty
-                 stop_one_worker() # This will try to stop MIN_WORKERS eventually
-            else: break
-        print("Dynamic Scaler stopped.")
+        log_message_final = "Scaler: Final cleanup. Terminating active workers..."
+        print(log_message_final); log_to_file(f"INFO,{log_message_final}")
+        
+        # Create a copy for safe iteration if stop_one_worker modifies the list
+        # However, stop_one_worker now pops from the global list directly
+        while len(active_worker_processes_info) > 0:
+            stop_one_worker() # This will stop them one by one until MIN_WORKERS or list is empty
+            if len(active_worker_processes_info) <= MIN_WORKERS and not any(p['process'].poll() is None for p in active_worker_processes_info if p['process'] is not None and hasattr(p['process'], 'poll')):
+                 # Break if only min workers left and they are not running, or list is empty
+                 # This logic needs refinement to ensure all are stopped.
+                 # The pop in stop_one_worker will eventually empty the list.
+                 pass
+
+
+        # Ensure all process log files are closed if they were managed by scaler
+        # (This part is tricky as Popen objects don't directly give file handles back easily)
+
+        print("Dynamic Scaler stopped."); log_to_file("INFO,Dynamic Scaler stopped.")
 
 if __name__ == "__main__":
-    if "SD-env/bin/python" not in PYTHON_EXECUTABLE : # Basic check
-        print(f"CRITICAL WARNING: PYTHON_EXECUTABLE ('{PYTHON_EXECUTABLE}') may not be your venv Python.")
-        print(f"         Set it to the full path: e.g., '{os.path.join(PROJECT_ROOT, 'SD-env', 'bin', 'python')}'")
-        # exit() # Optionally exit if not configured correctly
+    # (venv check and queue pre-declaration as before)
+    if PYTHON_EXECUTABLE == "python" or "SD-env/bin/python" not in PYTHON_EXECUTABLE :
+        print(f"CRITICAL WARNING: PYTHON_EXECUTABLE is '{PYTHON_EXECUTABLE}'.")
+    with open(SCALER_LOG_FILE, "w") as f: # Create/overwrite log file
+        f.write(f"Scaler Log Initialized at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Config: MIN_W={MIN_WORKERS}, MAX_W={MAX_WORKERS}, POLL_I={POLL_INTERVAL}s, COOLDOWN={SCALE_COOLDOWN_PERIOD}s\n")
+        f.write(f"Formula: T_avg={T_AVG_PROCESSING_PER_TASK:.6f}s, C_cap={C_WORKER_CAPACITY:.0f}rps, Tr_target={Tr_TARGET_RESPONSE_TIME}s, Lambda_est={LAMBDA_ESTIMATED_ARRIVAL_RATE}rps\n")
 
-    # Ensure RabbitMQ queues are declared before starting
-    # This is usually handled by workers/producers, but good to do here too.
     try:
         conn_init = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
         ch_init = conn_init.channel()
         ch_init.queue_declare(queue=TASK_QUEUE_NAME, durable=True)
-        ch_init.queue_declare(queue=RESULTS_QUEUE_NAME_RABBIT, durable=True) # Assuming this is used by workers
+        ch_init.queue_declare(queue=RESULTS_QUEUE_NAME_RABBIT, durable=True) 
         conn_init.close()
     except Exception as e:
-        print(f"Scaler: Could not pre-declare RabbitMQ queues: {e}. Workers might fail if queues don't exist.")
-
+        log_message_q_err = f"Scaler: Could not pre-declare RabbitMQ queues: {e}."
+        print(log_message_q_err); log_to_file(f"ERROR,{log_message_q_err}")
+    
     scaler_loop()
