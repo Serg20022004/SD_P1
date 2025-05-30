@@ -5,7 +5,7 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler
 import threading
 import time
 import random
-from xmlrpc.client import ServerProxy # For calling subscribers
+from xmlrpc.client import ServerProxy 
 
 # Restrict to a particular path.
 class RequestHandler(SimpleXMLRPCRequestHandler):
@@ -42,7 +42,7 @@ class InsultService:
         Returns the list of all stored insults.
         """
         with self._lock:
-            # XMLRPC might not handle sets directly, so convert to list
+            # Convert to list
             print(f"Retrieving insults. Current count: {len(self._insults)}")
             return list(self._insults)
 
@@ -105,7 +105,6 @@ class InsultService:
                         print(f"  Successfully notified {sub_url}")
                     except Exception as e:
                         print(f"  Error notifying subscriber {sub_url}: {e}")
-                        # Optional: Consider removing unresponsive subscribers
             elif not self._insults:
                 print("Broadcaster: No insults to broadcast.")
             elif not self._subscribers:
@@ -114,8 +113,7 @@ class InsultService:
 
 def run_server(host="localhost", port=8000):
     """Starts the XMLRPC server."""
-    # We're gonna use 127.0.0.1 according to the entorn pdf  	 	
-    # from campus for less latency
+    # Using 127.0.0.1 according to the entorn pdf for less latency 	 	
     actual_host = "127.0.0.1" 
     server_address = (actual_host, port)
     server = SimpleXMLRPCServer(server_address, requestHandler=RequestHandler, allow_none=True)

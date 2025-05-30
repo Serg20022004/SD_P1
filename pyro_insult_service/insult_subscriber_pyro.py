@@ -7,16 +7,12 @@ class NotificationReceiver:
     def receive_insult(self, insult_message):
         """This method is called by the InsultServer when a new insult is broadcast."""
         print(f"\n[SUBSCRIBER] >>> Received Insult: {insult_message}")
-        # It's good practice for remote methods to return something,
-        # even if it's just an acknowledgement.
         return "ACK: Insult received."
 
 def main():
     # --- Subscriber's local Pyro setup ---
     # Create a daemon for this subscriber to host its NotificationReceiver
     subscriber_daemon = Pyro4.Daemon(host="127.0.0.1") 
-                                    # Use a specific host for clarity and consistency
-                                    # Pyro will pick an available port automatically
     
     # Create an instance of our receiver object
     receiver_object = NotificationReceiver()

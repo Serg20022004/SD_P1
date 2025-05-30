@@ -21,9 +21,7 @@ class InsultServer:
     def add_insult(self, insult_string):
         with self._lock:
             if not isinstance(insult_string, str):
-                # Example files often just print or have simple returns, 
-                # but raising an error is also a Pyro way.
-                # For simplicity aligned with examples, let's return a status.
+
                 print("Error: Insult must be a string.")
                 return "Error: Insult must be a string."
             if insult_string in self._insults:
@@ -69,10 +67,7 @@ class InsultServer:
             print(f"  Successfully notified {subscriber_uri_str} with '{insult_message}'")
         except Pyro4.errors.CommunicationError:
             print(f"  Communication error with subscriber {subscriber_uri_str}. Will attempt to unregister.")
-            # Auto-unregister problematic subscribers
-            # Need to be careful with lock if calling unregister_subscriber directly
-            # For now, just print. A more robust system would handle removal.
-            # self.unregister_subscriber(subscriber_uri_str) # Potential deadlock if lock is not re-entrant or managed carefully
+
         except Exception as e:
             print(f"  Error notifying subscriber {subscriber_uri_str}: {type(e).__name__} - {e}")
 
@@ -95,17 +90,16 @@ class InsultServer:
                 for sub_uri in current_subscriber_uris_copy:
                     self._notify_specific_subscriber(sub_uri, insult_to_send)
             elif not self._insults:
-                # print("Broadcaster: No insults to send.") # Can be noisy
+                # print("Broadcaster: No insults to send.") 
                 pass
             elif not current_subscriber_uris_copy:
-                # print("Broadcaster: No subscribers registered.") # Can be noisy
+                # print("Broadcaster: No subscribers registered.") 
                 pass
         print("Broadcaster: Stopped.")
         
     def shutdown_broadcaster(self): # Method to stop the thread gracefully if needed
         print("InsultServer: Shutting down broadcaster thread...")
         self._broadcaster_active = False
-        # self.broadcaster_thread.join() # Wait for it to finish, might delay server shutdown
 
 def start_server():
     daemon = Pyro4.Daemon(host="127.0.0.1") # Explicitly use 127.0.0.1

@@ -4,7 +4,7 @@ import time
 import random
 import threading
 import signal
-import sys # For sys.exit in signal handler
+import sys 
 
 RABBITMQ_HOST = 'localhost'
 ADD_INSULT_QUEUE_NAME = 'add_insult_queue' # For receiving new insults

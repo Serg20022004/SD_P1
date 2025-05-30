@@ -42,7 +42,7 @@ def main():
     except Exception as e:
         print(f"Error retrieving insults: {type(e).__name__} - {e}")
 
-    # Optional: Introspection (like introclient.py, but simpler here)
+
     print("\n--- Server Exposed Methods (via _pyroMethods) ---")
     try:
         print(insult_server._pyroMethods)

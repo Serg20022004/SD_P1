@@ -31,12 +31,10 @@ def signal_shutdown(signum, frame):
         except Exception as e:
             print(f"[Subscriber] Error closing connection: {e}")
     print("[Subscriber] Exiting.")
-    # sys.exit(0) # Let main's finally block execute if possible
 
 def on_message_callback(ch, method, properties, body):
     insult_message = body.decode()
     print(f"\n[SUBSCRIBER] >>> Received Insult: {insult_message}")
-    # No ack needed if auto_ack=True (which is default for fanout examples usually)
 
 def main():
     global connection, channel, consumer_tag # Allow signal handler to access
@@ -70,8 +68,6 @@ def main():
         print(f"[Subscriber] Unexpected error: {e}")
     finally:
         print("[Subscriber] Cleaning up and exiting...")
-        # Signal handler should ideally have handled most of this if Ctrl+C was used
-        # This is a fallback
         if channel and channel.is_open:
             try:
                 if consumer_tag and channel.is_consuming: # Check if it's still consuming

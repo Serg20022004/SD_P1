@@ -24,7 +24,6 @@ def send_batch(channel, num_messages, batch_name="Batch"):
         )
         if (i + 1) % 100 == 0: # Print progress for large batches
             print(f"  Producer ({batch_name}): Sent {i+1}/{num_messages}...")
-        # time.sleep(0.01) # Small delay to simulate somewhat realistic arrival, OPTIONAL
     print(f"Producer ({batch_name}): Finished sending {num_messages} messages.")
 
 def main():
@@ -44,7 +43,7 @@ def main():
         time.sleep(30)
         
         # Burst 2
-        send_batch(channel, 6000, "Burst 2") # Approx 120s of work
+        send_batch(channel, 6000, "Burst 2") # Approx 120s
         
         print("\nProducer: Pausing for 20 seconds (low load period)...")
         time.sleep(20)
@@ -52,10 +51,9 @@ def main():
         # Steady load
         print("\nProducer: Starting steady load (100 msgs every 2s for 60s)...")
         for _ in range(30): # 30 * 2s = 60s
-            send_batch(channel, 100, "Steady Batch") # 50 rps
+            send_batch(channel, 100, "Steady Batch") 
             time.sleep(2)
-            # Check if scaler has been stopped elsewhere (e.g. if this runs for very long)
-            # This producer doesn't have a signal handler, it just runs its course.
+
 
         print("\nProducer: All tasks for scenario sent.")
 

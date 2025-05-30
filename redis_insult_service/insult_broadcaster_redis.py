@@ -2,7 +2,7 @@
 import redis
 import time
 import random
-import signal # For graceful shutdown
+import signal
 
 REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
@@ -25,7 +25,7 @@ def broadcast_insults():
     try:
         # Connection for reading insults
         r_reader = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-        # Connection for publishing messages (can be the same, but sometimes separated for clarity)
+        # Connection for publishing messages
         r_publisher = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
         while not shutdown_flag:
@@ -47,8 +47,6 @@ def broadcast_insults():
                     print(f"Broadcasted: '{insult_to_send}' (to {num_clients} subscribers on channel '{BROADCAST_CHANNEL}')")
                 except redis.exceptions.RedisError as e:
                      print(f"Broadcaster: Error publishing to Redis channel '{BROADCAST_CHANNEL}': {e}")
-            # else:
-                # print("Broadcaster: No insults in set or random pick failed.") # Can be noisy
 
             # Wait for 5 seconds before the next broadcast
             # Check shutdown_flag more frequently for responsiveness
@@ -63,8 +61,7 @@ def broadcast_insults():
         print(f"Broadcaster: An unexpected error occurred: {e}")
     finally:
         print("Insult Broadcaster is shutting down.")
-        # No explicit close needed for redis-py connections with default settings,
-        # they manage their connection pool.
+
 
 if __name__ == "__main__":
     broadcast_insults()

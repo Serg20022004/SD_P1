@@ -2,9 +2,9 @@
 
 from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 import threading
-import queue # For the internal work queue
+import queue #
 import time
-import re # For word replacement
+import re 
 
 # Restrict to a particular path.
 class RequestHandler(SimpleXMLRPCRequestHandler):
@@ -12,7 +12,7 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 
 class FilterService:
     def __init__(self, known_insults_list=None):
-        # List of insults to filter. Case-insensitive matching will be used.
+        # List of insults to filter. Case-insensitive matching.
         if known_insults_list is None:
             self.known_insults = {
                 "stupid", "idiot", "dummy", "moron", # Add more or load from file
@@ -32,23 +32,14 @@ class FilterService:
 
     def _filter_text(self, original_text):
         """Filters known insults from the text, replacing them with 'CENSORED'."""
-        # Simple word-based filtering. For robustness, might need regex for word boundaries.
-        # Using re.sub for case-insensitive replacement of whole words.
-        
+       
         # Build a regex pattern like: \b(stupid|idiot|dummy)\b
         # The \b ensures we match whole words.
         # re.IGNORECASE handles case-insensitivity.
         if not self.known_insults:
             return original_text
 
-        # Escape special regex characters in insults and join them with |
-        # Also, ensure insults are matched as whole words using \b
-        # For simplicity, we'll do a slightly less robust split and check for now,
-        # as complex regex can be tricky with various punctuations.
-        # A more robust approach would build a careful regex.
-
-        # Simpler approach: split text into words, check, and rebuild.
-        # This is less performant for large texts than regex but easier to reason about initially.
+        # Split text into words, check, and rebuild.
         words = re.split(r'(\W+)', original_text) # Split by non-word characters, keeping delimiters
         censored_words = []
         for word in words:
@@ -120,9 +111,7 @@ class FilterService:
         print("FilterService: Signaling worker thread to shutdown...")
         self._worker_active = False
         # The worker will complete current item and then exit if queue becomes empty
-        # To force it, one could put a sentinel value in the queue.
-        # Or rely on daemon=True for program exit.
-
+ 
 # --- Main Server Setup ---
 def run_filter_server(host="127.0.0.1", port=8001, known_insults=None):
     server_address = (host, port)
@@ -140,16 +129,13 @@ def run_filter_server(host="127.0.0.1", port=8001, known_insults=None):
     finally:
         print("Filter Server: Cleaning up...")
         filter_service_instance.shutdown_worker()
-        # Wait for worker thread to finish (optional, as it's a daemon)
+        # Wait for worker thread to finish
         if filter_service_instance.worker_thread.is_alive():
             print("Filter Server: Waiting for worker thread to complete...")
-            # If worker is stuck on queue.get(), it won't join until timeout expires
-            # Or a sentinel is put in the queue.
             filter_service_instance.worker_thread.join(timeout=2.0) 
         server.server_close()
         print("Filter Server: Shutdown complete.")
 
 if __name__ == "__main__":
-    # Optionally load insults from common_insults.txt or pass a list
     example_insults = ["stupid", "idiot", "darn", "heck", "lame"] 
     run_filter_server(known_insults=example_insults)

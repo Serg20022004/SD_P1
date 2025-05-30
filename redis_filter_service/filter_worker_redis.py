@@ -3,8 +3,8 @@ import redis
 import time
 import re
 import signal
-import os # For worker ID
-import json # For storing structured results
+import os 
+import json 
 import random
 
 REDIS_HOST = 'localhost'
@@ -58,9 +58,6 @@ def main():
                 queue_name, original_text = task_tuple
                 print(f"\nWorker {worker_id}: Received task from '{queue_name}': '{original_text[:50]}...'")
                 
-                # Simulate some processing time
-                #time.sleep(random.uniform(0.5, 2.0)) 
-                
                 filtered_text = filter_text_logic(original_text, KNOWN_INSULTS)
                 print(f"Worker {worker_id}: Filtered result: '{filtered_text[:50]}...'")
 
@@ -74,13 +71,11 @@ def main():
                 # Use rpush to add to the results list. Encode to JSON string.
                 r.rpush(RESULTS_LIST_NAME, json.dumps(result_data))
                 print(f"Worker {worker_id}: Stored result to '{RESULTS_LIST_NAME}'.")
-            # else:
-                # print(f"Worker {worker_id}: No task received (timeout).") # Can be noisy
                 
         except redis.exceptions.ConnectionError as e:
             print(f"Worker {worker_id}: Redis connection error: {e}. Retrying in 5s...")
             time.sleep(5)
-            # Re-establish connection (simplified)
+            # Re-establish connection
             try:
                 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
                 print(f"Worker {worker_id}: Reconnected to Redis.")

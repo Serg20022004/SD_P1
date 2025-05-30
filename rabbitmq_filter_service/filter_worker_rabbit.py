@@ -4,12 +4,12 @@ import time
 import re
 import signal
 import os
-import json # For sending structured results
+import json
 import random
 
 RABBITMQ_HOST = 'localhost'
 TASK_QUEUE_NAME = 'filter_task_work_queue'
-RESULTS_QUEUE_NAME = 'filter_results_data_queue' # New queue for results
+RESULTS_QUEUE_NAME = 'filter_results_data_queue'
 
 KNOWN_INSULTS = {"stupid", "idiot", "dummy", "moron", "lame", "darn", "heck"} # Lowercased
 
@@ -23,7 +23,7 @@ def signal_shutdown(signum, frame):
     print(f"\nWorker {worker_id}: Shutdown signal received...")
     if consuming_channel and consuming_channel.is_open:
         try:
-            # This tells RabbitMQ to stop sending messages to this consumer.
+            # Tells RabbitMQ to stop sending messages to this consumer.
             # The current message being processed (if any) should still be acked/nacked.
             # The start_consuming() loop will then typically exit.
             consuming_channel.stop_consuming()
@@ -51,11 +51,6 @@ def process_message_callback(ch, method, properties, body):
     original_text = body.decode()
     print(f"\nWorker {worker_id}: Received task: '{original_text[:50]}...'")
 
-    # Simulate work
-    #processing_time = random.uniform(1, 3)
-    #print(f"Worker {worker_id}: Processing for {processing_time:.2f} seconds...")
-    #time.sleep(processing_time)
-
     filtered_text = filter_text_logic(original_text, KNOWN_INSULTS)
     print(f"Worker {worker_id}: Filtered result: '{filtered_text[:50]}...'")
 
@@ -70,9 +65,7 @@ def process_message_callback(ch, method, properties, body):
 
     try:
         # Publish the filtered result to the results queue
-        # Use the same channel, or a new one if preferred for long-running workers
-        # For simplicity, re-use channel but ensure it's for the default exchange.
-        ch.queue_declare(queue=RESULTS_QUEUE_NAME, durable=True) # Ensure results queue exists
+        ch.queue_declare(queue=RESULTS_QUEUE_NAME, durable=True) # Ensures results queue exists
         ch.basic_publish(
             exchange='', # Default exchange
             routing_key=RESULTS_QUEUE_NAME,
@@ -81,17 +74,13 @@ def process_message_callback(ch, method, properties, body):
         )
         print(f"Worker {worker_id}: Sent filtered result to queue '{RESULTS_QUEUE_NAME}'.")
         
-        # Acknowledge the message from the task queue *after* successful processing AND result publishing
+        # Acknowledge the message from the task queue after successful processing AND result publishing
         ch.basic_ack(delivery_tag=method.delivery_tag)
         print(f"Worker {worker_id}: Task acknowledged.")
 
     except Exception as e:
         print(f"Worker {worker_id}: Error publishing result or acknowledging task: {e}")
         # Decide on retry logic or nack (negative acknowledgment)
-        # For now, if result publishing fails, the original task might be re-queued if worker crashes
-        # or if we implement nack. Let's assume for now if it fails here, original message is lost
-        # upon graceful shutdown, or re-queued if worker crashes before ack.
-        # A more robust system would handle this failure more gracefully (e.g., dead-letter queue for results).
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False) # Don't requeue if we can't process result
         print(f"Worker {worker_id}: Task NACKed (not requeued) due to result processing error.")
 

@@ -15,26 +15,25 @@ FILTER_WORKER_SCRIPT = os.path.join(PROJECT_ROOT, "rabbitmq_filter_service", "fi
 RESULTS_QUEUE_NAME_RABBIT = 'filter_results_data_queue'
 RABBITMQ_HOST = 'localhost'
 TASK_QUEUE_NAME = 'filter_task_work_queue'
-# RESULTS_QUEUE_NAME_RABBIT is used by workers but not directly by this scaler for its decisions.
 
 # Scaler Parameters
 MIN_WORKERS = 1
-MAX_WORKERS = 3 # Keep this reasonable for your VM (e.g., <= vCPUs for best effect)
+MAX_WORKERS = 3 
 POLL_INTERVAL = 5  # Seconds: How often to check queue and make scaling decisions
 
 # --- ACCURATE Formula parameters from your Phase 2, N=1 RabbitMQ test ---
 # Example: T1_rabbit for 10000 tasks was 15.25s
-T1_FOR_10K_TASKS_RABBIT = 15.25 # <<< REPLACE WITH YOUR ACTUAL MEASURED VALUE
+T1_FOR_10K_TASKS_RABBIT = 15.25
 TOTAL_TASKS_FOR_T1_CALC = 10000
 T_AVG_PROCESSING_PER_TASK = T1_FOR_10K_TASKS_RABBIT / TOTAL_TASKS_FOR_T1_CALC
 
 if T_AVG_PROCESSING_PER_TASK > 0:
     C_WORKER_CAPACITY = math.ceil(1 / T_AVG_PROCESSING_PER_TASK)
 else:
-    C_WORKER_CAPACITY = 100 # Fallback: A very conservative estimate if T_avg is somehow zero
+    C_WORKER_CAPACITY = 100 # Fallback: A conservative estimate if T_avg is somehow zero
 
 Tr_TARGET_RESPONSE_TIME = 2.0 # Seconds: Target for tasks in backlog
-LAMBDA_ESTIMATED_ARRIVAL_RATE = 150 # tasks/second (Average expected, adjust based on producer)
+LAMBDA_ESTIMATED_ARRIVAL_RATE = 150 # tasks/second
 
 SCALE_COOLDOWN_PERIOD = 15 # Seconds: Reduced for quicker reaction in demo
 
@@ -50,7 +49,6 @@ def log_to_file(message):
         f.write(message + "\n")
 
 def get_queue_length(queue_name):
-    # (get_queue_length function remains the same - ensure robust connection)
     connection = None
     try:
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, connection_attempts=2, retry_delay=1))
@@ -116,8 +114,6 @@ def stop_one_worker():
             # Close worker's log file
             logfile_name = worker_info_to_stop.get("logfile")
             if logfile_name:
-                # This requires finding the file object if it wasn't stored, or just noting it.
-                # For simplicity, we just have the name. Actual closing would be if we kept file objects.
                 pass
             return True
         except Exception as e:
@@ -197,7 +193,6 @@ def scaler_loop():
             else:
                 action_taken_str = f"InCooldown ({SCALE_COOLDOWN_PERIOD - (time.time() - last_scaling_action_time):.0f}s left)"
             
-            # Log data AFTER action attempt, use updated num_current_live_workers for log
             num_current_live_workers = len(active_worker_processes_info) # Re-check after potential scaling
             log_line = f"{ts},{current_backlog_B},{num_current_live_workers},{N_desired},{action_taken_str}"
             print(log_line); log_to_file(log_line)
@@ -209,24 +204,17 @@ def scaler_loop():
         log_message_final = "Scaler: Final cleanup. Terminating active workers..."
         print(log_message_final); log_to_file(f"INFO,{log_message_final}")
         
-        # Create a copy for safe iteration if stop_one_worker modifies the list
-        # However, stop_one_worker now pops from the global list directly
+
         while len(active_worker_processes_info) > 0:
             stop_one_worker() # This will stop them one by one until MIN_WORKERS or list is empty
             if len(active_worker_processes_info) <= MIN_WORKERS and not any(p['process'].poll() is None for p in active_worker_processes_info if p['process'] is not None and hasattr(p['process'], 'poll')):
-                 # Break if only min workers left and they are not running, or list is empty
-                 # This logic needs refinement to ensure all are stopped.
-                 # The pop in stop_one_worker will eventually empty the list.
                  pass
 
-
-        # Ensure all process log files are closed if they were managed by scaler
-        # (This part is tricky as Popen objects don't directly give file handles back easily)
 
         print("Dynamic Scaler stopped."); log_to_file("INFO,Dynamic Scaler stopped.")
 
 if __name__ == "__main__":
-    # (venv check and queue pre-declaration as before)
+    # (venv check and queue pre-declaration)
     if PYTHON_EXECUTABLE == "python" or "SD-env/bin/python" not in PYTHON_EXECUTABLE :
         print(f"CRITICAL WARNING: PYTHON_EXECUTABLE is '{PYTHON_EXECUTABLE}'.")
     with open(SCALER_LOG_FILE, "w") as f: # Create/overwrite log file
