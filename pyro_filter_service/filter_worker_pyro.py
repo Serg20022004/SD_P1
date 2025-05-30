@@ -18,11 +18,7 @@ class FilterWorker:
         It receives the text and the list of insults to use for filtering.
         """
         print(f"{self.worker_id}: Received text to filter: '{original_text[:50]}...' with {len(known_insults_list)} known insults.")
-        
-        # Basic filtering logic (same as in XMLRPC server for consistency)
-        # For more robust filtering, a dedicated library or advanced regex would be better.
-        # This assumes known_insults_list contains lowercased insults.
-        
+                
         # Convert known_insults_list to a set for efficient lookup if not already
         insults_to_check_set = set(insult.lower() for insult in known_insults_list)
 
@@ -43,12 +39,9 @@ def main():
     worker_daemon = Pyro4.Daemon(host="127.0.0.1") # Use specific host
     
     # Create a unique ID for this worker instance for logging/identification
-    # (e.g., based on hostname/port if desired, or just a random part of its URI)
-    # For now, let daemon pick port.
     
-    worker_instance = FilterWorker() # ID could be passed here
+    worker_instance = FilterWorker() 
     worker_uri = worker_daemon.register(worker_instance)
-    # If worker_id was based on URI, it would be set after this.
     worker_instance.worker_id = f"Worker@{worker_uri.location}" # Update worker_id with its location
     
     print(f"{worker_instance.worker_id}: Active at URI {worker_uri}")
@@ -77,7 +70,7 @@ def main():
         print(f"\n{worker_instance.worker_id}: Shutting down (Ctrl+C)...")
     finally:
         print(f"{worker_instance.worker_id}: Cleaning up...")
-        # Unregister from dispatcher (best effort)
+
         if dispatcher_proxy:
             try:
                 print(f"{worker_instance.worker_id}: Attempting to unregister from Dispatcher...")

@@ -28,7 +28,7 @@ class FilterDispatcher:
                 print(f"Dispatcher: Worker {worker_uri_str} already registered.")
                 return f"Worker {worker_uri_str} already registered."
 
-    def unregister_worker(self, worker_uri_str): # Optional, for graceful worker shutdown
+    def unregister_worker(self, worker_uri_str): # Graceful worker shutdown
         with self._lock:
             if worker_uri_str in self._worker_uris:
                 self._worker_uris.remove(worker_uri_str)
@@ -46,7 +46,7 @@ class FilterDispatcher:
         with self._lock:
             if not self._worker_uris:
                 print("Dispatcher: No workers registered to process the text.")
-                # Could queue it, or return error. For now, error.
+
                 return "Error: No workers available to filter text."
             
             # Simple round-robin to select a worker
