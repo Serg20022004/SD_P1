@@ -3,13 +3,13 @@ import multiprocessing
 import subprocess
 import time
 import redis
-import json # For results, though tasks are plain text
+import json 
 import os
 import signal
 import random
 
 # --- Configuration ---
-PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # SET TO YOUR VENV PYTHON
+PYTHON_EXECUTABLE = "/home/milax/Documents/SD/P1/SD-env/bin/python" # SET TO VENV PYTHON e.g., "/path/to/SD-env/bin/python"
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 
 FILTER_WORKER_SCRIPT_REDIS = os.path.join(PROJECT_ROOT, "redis_filter_service", "filter_worker_redis.py")
@@ -19,7 +19,7 @@ REDIS_PORT = 6379
 TASK_QUEUE_NAME_REDIS = 'filter_work_queue'
 RESULTS_LIST_NAME_REDIS = 'filtered_texts_results'
 
-TOTAL_REQUESTS = 10000 # Keeping it high for Redis
+TOTAL_REQUESTS = 10000 
 WORKER_COUNTS = [1, 2, 3] # Test with 1, 2, and 3 workers
 
 SAMPLE_TEXTS_FOR_REDIS_FILTER = [
@@ -45,7 +45,7 @@ def redis_producer_job(num_tasks, task_queue_name, sample_texts):
         for i in range(num_tasks):
             text_content = random.choice(sample_texts) + f" task_{i}"
             r_prod.rpush(task_queue_name, text_content)
-        # print(f"  Producer: Sent {num_tasks} tasks to Redis queue '{task_queue_name}'.")
+ 
     except Exception as e:
         print(f"  Producer (Redis) error: {e}")
 

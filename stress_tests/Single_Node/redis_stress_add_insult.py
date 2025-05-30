@@ -8,7 +8,7 @@ REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 INSULTS_SET_KEY = 'insults_set' # Key used by InsultService (broadcaster)
 TOTAL_REQUESTS = 10000
-CONCURRENCY_LEVELS = [1, 2, 5, 10, 20, 50] # Can often handle more
+CONCURRENCY_LEVELS = [1, 2, 5, 10, 20]
 SAMPLE_INSULTS = [f"Redis insult {i} stress test!" for i in range(100)]
 
 # --- Worker Function ---

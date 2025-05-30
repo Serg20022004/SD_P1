@@ -9,8 +9,7 @@ import signal
 import random
 
 # --- Configuration ---
-# !!! IMPORTANT: SET THIS TO THE PYTHON EXECUTABLE IN YOUR VIRTUAL ENVIRONMENT !!!
-PYTHON_EXECUTABLE = "python" # CHANGE THIS IF NEEDED
+PYTHON_EXECUTABLE = "python" # SET TO VENV PYTHON e.g., "/path/to/SD-env/bin/python"
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 FILTER_WORKER_SCRIPT_RABBIT = os.path.join(PROJECT_ROOT, "rabbitmq_filter_service", "filter_worker_rabbit.py")
@@ -19,7 +18,7 @@ RABBITMQ_HOST = 'localhost'
 TASK_QUEUE_NAME_RABBIT = 'filter_task_work_queue'
 RESULTS_QUEUE_NAME_RABBIT = 'filter_results_data_queue'
 
-TOTAL_REQUESTS = 10000 # Keep high if worker processing is fast
+TOTAL_REQUESTS = 10000 
 WORKER_COUNTS = [1, 2, 3]
 
 SAMPLE_TEXTS_FOR_RABBIT_FILTER = [
@@ -31,7 +30,6 @@ SAMPLE_TEXTS_FOR_RABBIT_FILTER = [
 
 # --- Helper Functions ---
 def clear_rabbitmq_data_robust():
-    # (clear_rabbitmq_data_robust remains mostly the same, ensure queues declared durable)
     connection = None
     try:
         connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
@@ -117,7 +115,6 @@ def consume_all_results_from_rabbit(num_expected, queue_name, timeout_per_messag
                     time.sleep(timeout_per_message) 
                 else: # Should not happen if len(results) < num_expected is true
                     break 
-        # print(f"  Results consumer: Consumed {len(results)} results from '{queue_name}'.")
     except Exception as e:
         print(f"  Results consumer error for '{queue_name}': {e}")
     finally:
@@ -173,11 +170,11 @@ if __name__ == "__main__":
                 raise Exception("Producer failed to send all tasks.")
             print(f"  Producer finished sending tasks. Now waiting for all results to be collected from '{RESULTS_QUEUE_NAME_RABBIT}'...")
 
-            # Now, consume results directly in the main test script
+            # Consume results directly in the main test script
             # Adjust overall timeout based on expected processing time.
             # If TOTAL_REQUESTS = 10000, and each worker does ~50RPS, 3 workers ~150RPS
-            # Time = 10000 / 150 = ~66s. Add buffer.
-            results_collection_timeout = 60 + (TOTAL_REQUESTS / (num_workers * 5 if num_workers > 0 else 1)) # Heuristic for results collection
+            # Time = 10000 / 150 = ~66s.
+            results_collection_timeout = 60 + (TOTAL_REQUESTS / (num_workers * 5 if num_workers > 0 else 1)) # For results collection
             
             collected_results = consume_all_results_from_rabbit(
                 TOTAL_REQUESTS, 
@@ -229,18 +226,13 @@ if __name__ == "__main__":
             for proc in worker_procs_rabbit:
                 if proc and proc.poll() is None: # Check if progress still running
                	    print(f"    Terminating worker PID: {proc.pid}...")
-                    try: 
-                        # proc.send_signal(signal.SIGINT)
-                        # time.sleep(1)
-                        # if proc.poll() is None:
+                    try:                        
                         proc.terminate() 
                         proc.wait(timeout=5)
                         if proc.poll() is None: # If still running after SIGTERM and wait
                              print(f"    Worker PID: {proc.pid} did not stop with SIGTERM, sending SIGKILL...")
                              proc.kill()
                              proc.wait(timeout=2) # Wait for kill
-                        # else:
-                        #    print(f"    Worker PID: {proc.pid} terminated with code {proc.returncode}.")
                     except subprocess.TimeoutExpired:
                         print(f"    Worker PID: {proc.pid} did not terminate/wait in time after SIGTERM, killing.")
                         proc.kill() # Force kill if terminate + wait times out
@@ -250,8 +242,6 @@ if __name__ == "__main__":
                         try:
                             if proc.poll() is None: proc.kill() # Last resort
                         except: pass
-                # else:
-                    # print(f"    Worker process was already terminated or not valid.")
             print(f"  RabbitMQ workers for N={num_workers} terminated (or were already).")
             time.sleep(1)
 

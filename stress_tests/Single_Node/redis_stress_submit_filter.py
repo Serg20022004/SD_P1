@@ -14,7 +14,7 @@ SAMPLE_TEXTS = [
     "Redis filter: A perfectly clean and fine statement about a moron.",
     "Redis filter: What a LAME thing to say, you dummy!",
     "Redis filter: This darn computer is so dense and heck is bad and more idiot stuff."
-] * 20 # Adjust multiplier for more unique texts
+] * 20
 
 # --- Worker Function (redis_submit_filter_worker) ---
 def redis_submit_filter_worker(num_requests_for_this_worker):

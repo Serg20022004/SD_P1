@@ -4,10 +4,10 @@ import time
 import random # For generating varied insults if needed
 
 # --- Test Configuration ---
-XMLRPC_SERVER_URL = "http://127.0.0.1:8000/RPC2" # From your InsultService XMLRPC server
+XMLRPC_SERVER_URL = "http://127.0.0.1:8000/RPC2" # From InsultService XMLRPC server
 TOTAL_REQUESTS = 10000  # Total insults to add
 CONCURRENCY_LEVELS = [1, 2, 5, 10, 20] # Number of parallel client processes
-SAMPLE_INSULTS = [f"Test insult {i} from a stress test!" for i in range(100)] # Create some varied data
+SAMPLE_INSULTS = [f"Test insult {i} from a stress test!" for i in range(100)] # Create varied data
 
 # --- Worker Function (executed by each process) ---
 def xmlrpc_add_insult_worker(num_requests_for_this_worker):
@@ -16,7 +16,6 @@ def xmlrpc_add_insult_worker(num_requests_for_this_worker):
     Each worker process will call this function.
     """
     pid = multiprocessing.current_process().pid
-    # print(f"Worker {pid}: Starting, to send {num_requests_for_this_worker} requests.")
     try:
         # Each process creates its own ServerProxy
         server_proxy = xmlrpc.client.ServerProxy(XMLRPC_SERVER_URL, allow_none=True)
@@ -29,18 +28,13 @@ def xmlrpc_add_insult_worker(num_requests_for_this_worker):
             insult_to_send = random.choice(SAMPLE_INSULTS) + f" (req {i} by {pid})"
             try:
                 response = server_proxy.add_insult(insult_to_send)
-                # Optionally, check response for success, but for throughput, just sending is key
-                # if "successfully" in response: # Basic check
                 success_count += 1
             except Exception as e:
-                # print(f"Worker {pid}: Error sending insult '{insult_to_send}': {e}")
                 failure_count += 1
         
-        # print(f"Worker {pid}: Finished. Success: {success_count}, Failures: {failure_count}")
         return {"success": success_count, "failure": failure_count}
 
     except Exception as e:
-        # print(f"Worker {pid}: Major error in worker: {e}")
         return {"success": 0, "failure": num_requests_for_this_worker, "error": str(e)}
 
 # --- Main Test Execution ---

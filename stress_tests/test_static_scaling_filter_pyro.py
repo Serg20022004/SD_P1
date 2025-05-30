@@ -5,10 +5,10 @@ import time
 import Pyro4
 import os
 import signal
-import random # For sample texts
+import random 
 
 # --- Configuration ---
-PYTHON_EXECUTABLE = "python" # SET TO YOUR VENV PYTHON e.g., "/path/to/SD-env/bin/python"
+PYTHON_EXECUTABLE = "python" # SET TO VENV PYTHON e.g., "/path/to/SD-env/bin/python"
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "."))
 
 FILTER_DISPATCHER_SCRIPT = os.path.join(PROJECT_ROOT, "pyro_filter_service", "filter_dispatcher_pyro.py")
@@ -16,7 +16,7 @@ FILTER_WORKER_SCRIPT_PYRO = os.path.join(PROJECT_ROOT, "pyro_filter_service", "f
 
 PYRO_DISPATCHER_NAME = "example.filter.dispatcher"
 
-TOTAL_REQUESTS = 5000 # Adjust as needed
+TOTAL_REQUESTS = 5000
 WORKER_COUNTS = [1, 2, 3]
 
 SAMPLE_TEXTS_FOR_PYRO_FILTER = [
@@ -50,8 +50,6 @@ def pyro_producer_job(num_tasks, dispatcher_name, sample_texts):
             try:
                 # This call is synchronous from producer's POV; dispatcher handles worker call
                 response = dispatcher.submit_text_for_filtering(text_to_filter)
-                # if not (isinstance(response, dict) and response.get("status") == "success"):
-                    # print(f"Producer: Dispatcher warning/error for task '{text_to_filter[:20]}...': {response}")
             except Exception as e:
                 print(f"Producer: Error submitting task to dispatcher: {e}")
                 # If dispatcher is down, this job might fail many times.
@@ -107,11 +105,6 @@ if __name__ == "__main__":
                 print(f"  All {num_workers} workers presumed started. Waiting for registrations...")
                 time.sleep(5 + num_workers * 2) # Allow workers time to register with dispatcher
 
-                # Check dispatcher's state (optional, needs method on dispatcher)
-                # dispatcher_check = Pyro4.Proxy(f"PYRONAME:{PYRO_DISPATCHER_NAME}")
-                # print(f"  Dispatcher reports {len(dispatcher_check._worker_uris)} workers registered.")
-
-
                 print(f"  Producer starting to send {TOTAL_REQUESTS} tasks...")
                 test_start_time = time.perf_counter()
                 
@@ -123,14 +116,13 @@ if __name__ == "__main__":
                 # Monitor results at the dispatcher
                 dispatcher_monitor = Pyro4.Proxy(f"PYRONAME:{PYRO_DISPATCHER_NAME}")
                 results_collected_count = 0
-                max_wait_time_pyro = 60 + TOTAL_REQUESTS * 0.2 # Generous timeout
+                max_wait_time_pyro = 60 + TOTAL_REQUESTS * 0.2 # Timeout
                 wait_start_pyro = time.time()
 
                 while results_collected_count < TOTAL_REQUESTS and (time.time() - wait_start_pyro) < max_wait_time_pyro:
                     try:
                         current_results = dispatcher_monitor.get_filtered_results()
                         results_collected_count = len(current_results)
-                        # print(f"    Dispatcher has {results_collected_count}/{TOTAL_REQUESTS} results.")
                         if results_collected_count < TOTAL_REQUESTS:
                             time.sleep(0.5)
                         else:
@@ -168,11 +160,11 @@ if __name__ == "__main__":
                 print(f"  Terminating {len(worker_procs_pyro)} worker process(es) for N={num_workers} run...")
                 for proc in worker_procs_pyro:
                     try: 
-                        proc.terminate() # Simpler for now
+                        proc.terminate()
                         proc.wait(timeout=5)
                     except: pass
                 print(f"  Workers for N={num_workers} terminated.")
-                # Clear dispatcher's results for next run (needs method on dispatcher)
+                # Clear dispatcher's results for next run
                 try:
                     Pyro4.Proxy(f"PYRONAME:{PYRO_DISPATCHER_NAME}")._filtered_results = [] 
                     print("  Dispatcher results cleared (attempted).")
